@@ -81,7 +81,6 @@ function BtDeviceGroupFactory() {
 		return crc16(data, 0x1021, 0xFFFF, false);
 	}
 
-	/* { prefix: cubeModel } */
 	var cubeModels = {};
 
 	function regCubeModel(cubeModel) {
@@ -144,36 +143,28 @@ function BtDeviceGroupFactory() {
 			}, 10000);
 		});
 	}
-	function showBtRetryDialog(titleText, errorMsg, retryFn) {
-		$('#bt-retry-overlay').remove();
-		var overlay = $('<div id="bt-retry-overlay" style="position:fixed;top:0;left:0;width:100%;height:100%;background:rgba(0,0,0,0.6);z-index:99999;display:flex;align-items:center;justify-content:center;"></div>');
-		var box = $('<div style="background:#fff;color:#222;padding:20px;border-radius:8px;text-align:center;max-width:320px;box-shadow:0 4px 15px rgba(0,0,0,0.3);font-family:sans-serif;"></div>');
-		var title = $('<h4 style="margin:0 0 10px 0;"></h4>').text(titleText);
-		var msg = $('<p style="margin:0 0 18px 0;font-size:14px;word-break:break-word;"></p>').text(errorMsg);
-		var retryBtn = $('<button style="padding:10px 20px;margin-right:10px;background:#1a73e8;color:#fff;border:none;border-radius:4px;cursor:pointer;font-size:14px;font-weight:bold;">Retry 重新連線</button>');
-		var cancelBtn = $('<button style="padding:10px 18px;background:#e0e0e0;color:#333;border:none;border-radius:4px;cursor:pointer;font-size:14px;">關閉</button>');
-
-		retryBtn.on('click', function () {
-			overlay.remove();
-			retryFn();
-		});
-		cancelBtn.on('click', function () {
-			overlay.remove();
-		});
-
-		box.append(title, msg, retryBtn, cancelBtn);
-		overlay.append(box);
-		$('body').append(overlay);
+	function updateRetryButton(show) {
+		var btn = $('#bt-center-retry-btn');
+		if (show) {
+			if (btn.length === 0) {
+				btn = $('<button id="bt-center-retry-btn" style="position:fixed;top:62%;left:50%;transform:translate(-50%,-50%);z-index:9999;padding:12px 26px;background:#1a73e8;color:#fff;border:none;border-radius:25px;font-size:16px;font-weight:bold;box-shadow:0 4px 12px rgba(0,0,0,0.35);cursor:pointer;">↻ 藍牙斷線 (點擊重連)</button>');
+				btn.on('click', function () {
+					btn.text('連線中...').prop('disabled', true);
+					_device = null;
+					init(false);
+				});
+				$('body').append(btn);
+			}
+			btn.text('↻ 藍牙斷線 (點擊重連)').prop('disabled', false).show();
+		} else {
+			btn.hide();
+		}
 	}
-
 	function onHardwareEvent(info, event) {
 		var res = Promise.resolve();
 		if (info == 'disconnect') {
 			res = Promise.resolve(stop(true)).then(function () {
-				showBtRetryDialog('計時器已斷線', '計時器已自動關機或訊號中斷，請確認開啟電源後點擊重連。', function () {
-					_device = null;
-					init(false);
-				});
+				updateRetryButton(true);
 			});
 		}
 		return res.then(function () {
@@ -184,12 +175,10 @@ function BtDeviceGroupFactory() {
 	var onDisconnect = onHardwareEvent.bind(null, 'disconnect');
 
 	function init(reconnect) {
+		updateRetryButton(false);
 		return giikerutil.chkAvail().then(function () {
 			if (_device && reconnect) {
 				giikerutil.log('[bluetooth]', 'reconnecting...', _device);
-				if (!_device.watchAdvertisements) {
-					return _device;
-				}
 				return waitUntilDeviceAvailable(_device);
 			}
 			var filters = Object.keys(cubeModels).map((prefix) => ({ namePrefix: prefix }));
@@ -228,16 +217,12 @@ function BtDeviceGroupFactory() {
 				}
 				return cube.init(device);
 			});
+		}).then(function (res) {
+			updateRetryButton(false);
+			return res;
 		}).catch(function (err) {
-			if (err && err.name === 'NotFoundError') {
-				return;
-			}
-			var errText = (err && err.message) ? err.message : String(err);
-			showBtRetryDialog('藍牙連線失敗', errText, function () {
-				_device = null;
-				init(false);
-			});
-			return new Promise(function () { });
+			updateRetryButton(true);
+			return Promise.reject(err);
 		});
 	}
 	function waitUntilDeviceAvailable(device) {
@@ -312,20 +297,12 @@ function BtDeviceGroupFactory() {
 }
 
 var GiikerCube = execMain(BtDeviceGroupFactory);
-
 var BluetoothTimer = execMain(BtDeviceGroupFactory);
 
 BluetoothTimer.CONST = (function () {
-	var State = {};
-	State.DISCONNECT = 0;
-	State.GET_SET = 1;
-	State.HANDS_OFF = 2;
-	State.RUNNING = 3;
-	State.STOPPED = 4;
-	State.IDLE = 5;
-	State.HANDS_ON = 6;
-	State.FINISHED = 7;
-	State.INSPECTION = 8;
-	State.GAN_RESET = 9;
+	var State = {
+		DISCONNECT: 0, GET_SET: 1, HANDS_OFF: 2, RUNNING: 3, STOPPED: 4,
+		IDLE: 5, HANDS_ON: 6, FINISHED: 7, INSPECTION: 8, GAN_RESET: 9
+	};
 	return State;
 })();
