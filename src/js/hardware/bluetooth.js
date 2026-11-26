@@ -143,59 +143,41 @@ function BtDeviceGroupFactory() {
 			}, 10000);
 		});
 	}
-		function updateRetryButton(show) {
+	function updateRetryButton(show) {
 		var btn = $('#bt-center-retry-btn');
 		if (show) {
 			if (btn.length === 0) {
-				btn = $('<button id="bt-center-retry-btn" style="position:fixed;z-index:9999;padding:8px 22px;background:#1a73e8;color:#fff;border:none;border-radius:20px;font-size:15px;font-weight:bold;box-shadow:0 3px 10px rgba(0,0,0,0.45);cursor:pointer;white-space:nowrap;">↻ 藍牙斷線 (點擊重連)</button>');
-				btn.on('click', function(e) {
-					e.stopPropagation();
+				btn = $('<button id="bt-center-retry-btn" style="position:fixed;z-index:9999;padding:10px 24px;background:#1a73e8;color:#fff;border:none;border-radius:25px;font-size:15px;font-weight:bold;box-shadow:0 4px 12px rgba(0,0,0,0.45);cursor:pointer;white-space:nowrap;">↻ 藍牙斷線 (點擊重連)</button>');
+				btn.on('click', function() {
 					btn.text('連線中...').prop('disabled', true);
 					_device = null;
 					init(false);
 				});
 				$('body').append(btn);
 			}
-
-			// 精準尋找畫面上時間文字裡的「:」並取得它的正中央 X 座標
-			var targetX = window.innerWidth / 2;
-			var targetY = window.innerHeight * 0.56;
-			var lcdEl = document.getElementById('lcd');
-			if (lcdEl) {
-				var lcdRect = lcdEl.getBoundingClientRect();
-				targetX = lcdRect.left + lcdRect.width / 2;
-				targetY = lcdRect.bottom + 8;
-
-				// 進一步透過 Range 精準定位文字裡的「:」符號
-				var walker = document.createTreeWalker(lcdEl, NodeFilter.SHOW_TEXT, null, false);
-				var node;
-				while ((node = walker.nextNode())) {
-					var idx = node.nodeValue.indexOf(':');
-					if (idx !== -1) {
-						var range = document.createRange();
-						range.setStart(node, idx);
-						range.setEnd(node, idx + 1);
-						var colonRect = range.getBoundingClientRect();
-						if (colonRect.width > 0) {
-							targetX = colonRect.left + colonRect.width / 2;
-							targetY = colonRect.bottom + 10;
-						}
-						break;
-					}
-				}
+			// 動態對齊計時器數字區塊（#lcd）的水平正中央
+			var lcd = $('#lcd');
+			if (lcd.length > 0 && lcd.is(':visible')) {
+				var rect = lcd[0].getBoundingClientRect();
+				var centerX = rect.left + rect.width / 2;
+				var posY = rect.bottom + 18;
+				btn.css({
+					left: centerX + 'px',
+					top: posY + 'px',
+					transform: 'translateX(-50%)'
+				});
+			} else {
+				btn.css({
+					left: '50%',
+					top: '62%',
+					transform: 'translate(-50%, -50%)'
+				});
 			}
-
-			btn.css({
-				left: targetX + 'px',
-				top: targetY + 'px',
-				transform: 'translateX(-50%)'
-			});
 			btn.text('↻ 藍牙斷線 (點擊重連)').prop('disabled', false).show();
 		} else {
 			btn.hide();
 		}
 	}
-
 	function onHardwareEvent(info, event) {
 		var res = Promise.resolve();
 		if (info == 'disconnect') {
