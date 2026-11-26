@@ -119,27 +119,14 @@ function BtDeviceGroupFactory() {
 		if (!_device || !_device.watchAdvertisements) {
 			return Promise.reject(-1);
 		}
-		// watchAdvertisements() EXISTS on Linux/ChromeOS but never fires
-		// 'advertisementreceived' there, so feature-detecting the method isn't enough.
-		// Web Bluetooth scanning has known implementation issues on those platforms as
-		// of 2026-08; see
-		// https://github.com/WebBluetoothCG/web-bluetooth/blob/main/implementation-status.md
-		// If support lands there later, this platform skip can simply be removed. Until
-		// then, reject early with the existing -1 code so callers fall back to manual
-		// MAC entry without waiting out the 10s timeout.
 		var uaPlatform = navigator.userAgentData && navigator.userAgentData.platform;
 		if (uaPlatform == 'Linux' || uaPlatform == 'Chrome OS') {
 			return Promise.reject(-1);
 		}
 		var abortController = new AbortController();
-		return new Promise(function(resolve, reject) {
-			var onAdvEvent = function(event) {
+		return new Promise(function (resolve, reject) {
+			var onAdvEvent = function (event) {
 				giikerutil.log('[bluetooth] receive adv event', event);
-				// Manufacturer data rides in only some advertising packets (e.g. ADV_IND
-				// vs SCAN_RSP), and some platforms (Windows/WinRT) deliver them as
-				// separate events - so the first event is frequently empty. Ignore
-				// packets without manufacturer data and keep listening until one carries
-				// it, or until the timeout fires.
 				if (!event.manufacturerData || event.manufacturerData.size == 0) {
 					giikerutil.log('[bluetooth] adv has no manufacturer data, waiting for next');
 					return;
@@ -150,18 +137,44 @@ function BtDeviceGroupFactory() {
 			};
 			_device.addEventListener('advertisementreceived', onAdvEvent);
 			_device.watchAdvertisements({ signal: abortController.signal });
-			setTimeout(function() { // reject if no mac found
+			setTimeout(function () {
 				_device && _device.removeEventListener('advertisementreceived', onAdvEvent);
 				abortController.abort();
 				reject(-2);
 			}, 10000);
 		});
 	}
+	function showBtRetryDialog(titleText, errorMsg, retryFn) {
+		$('#bt-retry-overlay').remove();
+		var overlay = $('<div id="bt-retry-overlay" style="position:fixed;top:0;left:0;width:100%;height:100%;background:rgba(0,0,0,0.6);z-index:99999;display:flex;align-items:center;justify-content:center;"></div>');
+		var box = $('<div style="background:#fff;color:#222;padding:20px;border-radius:8px;text-align:center;max-width:320px;box-shadow:0 4px 15px rgba(0,0,0,0.3);font-family:sans-serif;"></div>');
+		var title = $('<h4 style="margin:0 0 10px 0;"></h4>').text(titleText);
+		var msg = $('<p style="margin:0 0 18px 0;font-size:14px;word-break:break-word;"></p>').text(errorMsg);
+		var retryBtn = $('<button style="padding:10px 20px;margin-right:10px;background:#1a73e8;color:#fff;border:none;border-radius:4px;cursor:pointer;font-size:14px;font-weight:bold;">Retry 重新連線</button>');
+		var cancelBtn = $('<button style="padding:10px 18px;background:#e0e0e0;color:#333;border:none;border-radius:4px;cursor:pointer;font-size:14px;">關閉</button>');
+
+		retryBtn.on('click', function () {
+			overlay.remove();
+			retryFn();
+		});
+		cancelBtn.on('click', function () {
+			overlay.remove();
+		});
+
+		box.append(title, msg, retryBtn, cancelBtn);
+		overlay.append(box);
+		$('body').append(overlay);
+	}
 
 	function onHardwareEvent(info, event) {
 		var res = Promise.resolve();
 		if (info == 'disconnect') {
-			res = Promise.resolve(stop(true));
+			res = Promise.resolve(stop(true)).then(function () {
+				showBtRetryDialog('計時器已斷線', '計時器已自動關機或訊號中斷，請確認開啟電源後點擊重連。', function () {
+					_device = null;
+					init(false);
+				});
+			});
 		}
 		return res.then(function () {
 			return typeof evtCallback == 'function' && evtCallback(info, event);
@@ -171,15 +184,17 @@ function BtDeviceGroupFactory() {
 	var onDisconnect = onHardwareEvent.bind(null, 'disconnect');
 
 	function init(reconnect) {
-		return giikerutil.chkAvail().then(function() {
+		return giikerutil.chkAvail().then(function () {
 			if (_device && reconnect) {
 				giikerutil.log('[bluetooth]', 'reconnecting...', _device);
+				if (!_device.watchAdvertisements) {
+					return _device;
+				}
 				return waitUntilDeviceAvailable(_device);
 			}
 			var filters = Object.keys(cubeModels).map((prefix) => ({ namePrefix: prefix }));
 			var opservs = [...new Set(Array.prototype.concat.apply([], Object.values(cubeModels).map((cubeModel) => cubeModel.opservs || [])))];
 			var cics = [...new Set(Array.prototype.concat.apply([], Object.values(cubeModels).map((cubeModel) => cubeModel.cics || [])))];
-			// also match by advertised service, for devices that can't present a model name (e.g. phone timers)
 			var servFilters = [...new Set(Array.prototype.concat.apply([], Object.values(cubeModels).map((cubeModel) => cubeModel.servFilters || [])))];
 			if (!/Bluefy/i.test(window.navigator.userAgent || '')) {
 				filters = filters.concat(servFilters.map((service) => ({ services: [service] })));
@@ -190,7 +205,7 @@ function BtDeviceGroupFactory() {
 				optionalServices: opservs,
 				optionalManufacturerData: cics
 			});
-		}).then(function(device) {
+		}).then(function (device) {
 			giikerutil.log('[bluetooth]', 'BLE device is selected, name=' + device.name, device);
 			_device = device;
 			device.addEventListener('gattserverdisconnected', onDisconnect);
@@ -205,7 +220,7 @@ function BtDeviceGroupFactory() {
 			if (cube) {
 				return cube.init(device);
 			}
-			return device.gatt.connect().then((gatt) => gatt.getPrimaryServices()).then(function(servs) {
+			return device.gatt.connect().then((gatt) => gatt.getPrimaryServices()).then(function (servs) {
 				var uuids = servs.map((service) => toUuid128(service.uuid));
 				cube = Object.values(cubeModels).find((model) => (model.servFilters || []).some((s) => uuids.indexOf(toUuid128(s)) >= 0));
 				if (!cube) {
@@ -213,10 +228,18 @@ function BtDeviceGroupFactory() {
 				}
 				return cube.init(device);
 			});
+		}).catch(function (err) {
+			if (err && err.name === 'NotFoundError') {
+				return;
+			}
+			var errText = (err && err.message) ? err.message : String(err);
+			showBtRetryDialog('藍牙連線失敗', errText, function () {
+				_device = null;
+				init(false);
+			});
+			return new Promise(function () { });
 		});
 	}
-
-	// Wait until target device start sending bluetooth advertisiment packets
 	function waitUntilDeviceAvailable(device) {
 		var abortController = new AbortController();
 		return new Promise(function (resolve, reject) {
@@ -260,18 +283,18 @@ function BtDeviceGroupFactory() {
 	return {
 		init: init,
 		stop: stop,
-		isConnected: function() {
+		isConnected: function () {
 			return _device != null || DEBUGBL;
 		},
-		setCallback: function(func) {
+		setCallback: function (func) {
 			callback = func;
 		},
-		setEventCallback: function(func) {
+		setEventCallback: function (func) {
 			evtCallback = func;
 		},
-		getCube: function() {
+		getCube: function () {
 			return cube || (DEBUGBL && {
-				getBatteryLevel: function() { return Promise.resolve(80); }
+				getBatteryLevel: function () { return Promise.resolve(80); }
 			});
 		},
 		regCubeModel: regCubeModel,
@@ -282,7 +305,7 @@ function BtDeviceGroupFactory() {
 		findUUID: findUUID,
 		waitForAdvs: waitForAdvs,
 		onDisconnect: onDisconnect,
-		callback: function() {
+		callback: function () {
 			return callback.apply(null, arguments);
 		}
 	};
@@ -292,16 +315,16 @@ var GiikerCube = execMain(BtDeviceGroupFactory);
 
 var BluetoothTimer = execMain(BtDeviceGroupFactory);
 
-BluetoothTimer.CONST = (function() {
+BluetoothTimer.CONST = (function () {
 	var State = {};
-	State.DISCONNECT = 0;  // Fired when timer is disconnected from bluetooth
-	State.GET_SET = 1;     // Grace delay is expired and timer is ready to start
-	State.HANDS_OFF = 2;   // Hands removed from the timer before grace delay expired
-	State.RUNNING = 3;     // Timer is running
-	State.STOPPED = 4;     // Timer is stopped, this event includes recorded time
-	State.IDLE = 5;        // Timer is reset and idle
-	State.HANDS_ON = 6;    // Hands are placed on the timer
-	State.FINISHED = 7;    // Timer moves to this state immediately after STOPPED
+	State.DISCONNECT = 0;
+	State.GET_SET = 1;
+	State.HANDS_OFF = 2;
+	State.RUNNING = 3;
+	State.STOPPED = 4;
+	State.IDLE = 5;
+	State.HANDS_ON = 6;
+	State.FINISHED = 7;
 	State.INSPECTION = 8;
 	State.GAN_RESET = 9;
 	return State;
