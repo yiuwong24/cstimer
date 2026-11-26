@@ -113,8 +113,9 @@ execMain(function (timer) {
 			timer.lcd.fixDisplay(false, true);
 		}).catch(function (err) {
 			DEBUG && console.log('[qiyitimer] failed to connect to timer', err);
-			if (err && err.name === 'NotFoundError') {
-				updateTimerRetryBtn(true, '↻ 未選擇設備 (點擊重新連線)');
+			// 按取消 (NotFoundError) 或重開網頁自動觸發被瀏覽器擋下 (SecurityError) 時，直接顯示藍色按鈕且不彈 alert
+			if (err && (err.name === 'NotFoundError' || err.name === 'SecurityError')) {
+				updateTimerRetryBtn(true, '↻ 未連線 (點擊連接藍牙)');
 				return;
 			}
 			updateTimerRetryBtn(true, '↻ 連線失敗 / 超時 (點擊重試)');
@@ -125,17 +126,9 @@ execMain(function (timer) {
 	}
 
 	function showConnectionDialog() {
-		var dialogMsg = $('<div>')
-			.append('<br><br>')
-			.append('<b>' + BT_CONNECT_MSG.split('|')[1] + '</b>')
-			.append('<br><br>')
-			.append(timer.getBTDiv());
+		// 跳過教學視窗，直接發起藍牙連線
 		BluetoothTimer.stop().then(function () {
-			kernel.showDialog([dialogMsg, function () {
-				connectTimer();
-			}, function () {
-				updateTimerRetryBtn(true, '↻ 未連線 (點擊連接藍牙)');
-			}, 0], 'share', BT_CONNECT_TITLE.split('|')[1]);
+			connectTimer();
 		});
 	}
 
