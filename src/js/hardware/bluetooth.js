@@ -259,7 +259,9 @@ function BtDeviceGroupFactory() {
 			if (connectTimer) {
 				clearTimeout(connectTimer);
 			}
+			// 如果是在 Select Device 視窗不小心按取消 (NotFoundError)，一樣顯示 Retry 按鈕，但不彈出報錯 alert
 			if (err && err.name === 'NotFoundError') {
+				setInlineRetryBtn(true, '↻ 未選擇設備 (點擊重新連線)');
 				return;
 			}
 			setInlineRetryBtn(true, '↻ 連線失敗 / 超時 (點擊重試)');
