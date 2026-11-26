@@ -147,13 +147,31 @@ function BtDeviceGroupFactory() {
 		var btn = $('#bt-center-retry-btn');
 		if (show) {
 			if (btn.length === 0) {
-				btn = $('<button id="bt-center-retry-btn" style="position:fixed;top:62%;left:50%;transform:translate(-50%,-50%);z-index:9999;padding:12px 26px;background:#1a73e8;color:#fff;border:none;border-radius:25px;font-size:16px;font-weight:bold;box-shadow:0 4px 12px rgba(0,0,0,0.35);cursor:pointer;">↻ 藍牙斷線 (點擊重連)</button>');
-				btn.on('click', function () {
+				btn = $('<button id="bt-center-retry-btn" style="position:fixed;z-index:9999;padding:10px 24px;background:#1a73e8;color:#fff;border:none;border-radius:25px;font-size:15px;font-weight:bold;box-shadow:0 4px 12px rgba(0,0,0,0.45);cursor:pointer;white-space:nowrap;">↻ 藍牙斷線 (點擊重連)</button>');
+				btn.on('click', function() {
 					btn.text('連線中...').prop('disabled', true);
 					_device = null;
 					init(false);
 				});
 				$('body').append(btn);
+			}
+			// 動態對齊計時器數字區塊（#lcd）的水平正中央
+			var lcd = $('#lcd');
+			if (lcd.length > 0 && lcd.is(':visible')) {
+				var rect = lcd[0].getBoundingClientRect();
+				var centerX = rect.left + rect.width / 2;
+				var posY = rect.bottom + 18;
+				btn.css({
+					left: centerX + 'px',
+					top: posY + 'px',
+					transform: 'translateX(-50%)'
+				});
+			} else {
+				btn.css({
+					left: '50%',
+					top: '62%',
+					transform: 'translate(-50%, -50%)'
+				});
 			}
 			btn.text('↻ 藍牙斷線 (點擊重連)').prop('disabled', false).show();
 		} else {
