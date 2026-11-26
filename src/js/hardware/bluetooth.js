@@ -157,13 +157,14 @@ function BtDeviceGroupFactory() {
 					_device = null;
 					init(false);
 				});
-				if ($('#lcd').length > 0) {
-					$('#lcd').after(btn);
-				} else if ($('#avgstr').length > 0) {
-					$('#avgstr').before(btn);
-				} else {
-					$('body').append(btn);
-				}
+			}
+			// 每次顯示時都確保它掛在 #lcd 後面（防止畫面重繪時被清掉）
+			if ($('#lcd').length > 0 && btn.prev().attr('id') !== 'lcd') {
+				$('#lcd').after(btn);
+			} else if ($('#avgstr').length > 0 && btn.next().attr('id') !== 'avgstr') {
+				$('#avgstr').before(btn);
+			} else if (!document.body.contains(btn[0])) {
+				$('body').append(btn);
 			}
 			btn.text(labelText || '↻ 藍牙斷線 (點擊重連)').prop('disabled', false).show();
 		} else {
@@ -259,10 +260,9 @@ function BtDeviceGroupFactory() {
 			if (connectTimer) {
 				clearTimeout(connectTimer);
 			}
-			// 如果是在 Select Device 視窗不小心按取消 (NotFoundError)，一樣顯示 Retry 按鈕，但不彈出報錯 alert
 			if (err && err.name === 'NotFoundError') {
 				setInlineRetryBtn(true, '↻ 未選擇設備 (點擊重新連線)');
-				return;
+				return new Promise(function () {}); // 阻止上層重置回 0.000
 			}
 			setInlineRetryBtn(true, '↻ 連線失敗 / 超時 (點擊重試)');
 			return Promise.reject(err);
