@@ -143,54 +143,58 @@ function BtDeviceGroupFactory() {
 			}, 10000);
 		});
 	}
-	var connectTimeout = null;
-
-	function updateRetryButton(state) {
-		// state: 'disconnected' | 'connecting' | 'connected'
+		function updateRetryButton(show) {
 		var btn = $('#bt-center-retry-btn');
-		if (btn.length === 0) {
-			btn = $('<button id="bt-center-retry-btn" style="display:block;margin:12px auto 4px auto;padding:8px 22px;color:#fff;border:none;border-radius:20px;font-size:15px;font-weight:bold;box-shadow:0 3px 10px rgba(0,0,0,0.45);cursor:pointer;white-space:nowrap;position:relative;z-index:9999;"></button>');
-			btn.on('click', function(e) {
-				e.stopPropagation();
-				// 即使正在連線中卡住，點擊也能強制重設並重新發起連線
-				if (connectTimeout) {
-					clearTimeout(connectTimeout);
-				}
-				if (_device && _device.gatt && _device.gatt.connected) {
-					try { _device.gatt.disconnect(); } catch (err) {}
-				}
-				_device = null;
-				init(false);
-			});
-			if ($('#lcd').length > 0) {
-				$('#lcd').after(btn);
-			} else if ($('#avgstr').length > 0) {
-				$('#avgstr').before(btn);
-			} else {
+		if (show) {
+			if (btn.length === 0) {
+				btn = $('<button id="bt-center-retry-btn" style="position:fixed;z-index:9999;padding:8px 22px;background:#1a73e8;color:#fff;border:none;border-radius:20px;font-size:15px;font-weight:bold;box-shadow:0 3px 10px rgba(0,0,0,0.45);cursor:pointer;white-space:nowrap;">↻ 藍牙斷線 (點擊重連)</button>');
+				btn.on('click', function(e) {
+					e.stopPropagation();
+					btn.text('連線中...').prop('disabled', true);
+					_device = null;
+					init(false);
+				});
 				$('body').append(btn);
 			}
-		}
 
-		// 永遠保持按鈕可點擊（不設 disabled），防止卡死時無法手動重試
-		btn.prop('disabled', false).show();
+			// 精準尋找畫面上時間文字裡的「:」並取得它的正中央 X 座標
+			var targetX = window.innerWidth / 2;
+			var targetY = window.innerHeight * 0.56;
+			var lcdEl = document.getElementById('lcd');
+			if (lcdEl) {
+				var lcdRect = lcdEl.getBoundingClientRect();
+				targetX = lcdRect.left + lcdRect.width / 2;
+				targetY = lcdRect.bottom + 8;
 
-		if (state === 'connecting') {
-			btn.css({ background: '#f57c00', opacity: '1' })
-			   .text('⏳ 連線中... (點擊可重試)');
-		} else if (state === 'connected') {
-			btn.css({ background: '#2e7d32', opacity: '0.65' })
-			   .text('✓ 藍牙已連線');
+				// 進一步透過 Range 精準定位文字裡的「:」符號
+				var walker = document.createTreeWalker(lcdEl, NodeFilter.SHOW_TEXT, null, false);
+				var node;
+				while ((node = walker.nextNode())) {
+					var idx = node.nodeValue.indexOf(':');
+					if (idx !== -1) {
+						var range = document.createRange();
+						range.setStart(node, idx);
+						range.setEnd(node, idx + 1);
+						var colonRect = range.getBoundingClientRect();
+						if (colonRect.width > 0) {
+							targetX = colonRect.left + colonRect.width / 2;
+							targetY = colonRect.bottom + 10;
+						}
+						break;
+					}
+				}
+			}
+
+			btn.css({
+				left: targetX + 'px',
+				top: targetY + 'px',
+				transform: 'translateX(-50%)'
+			});
+			btn.text('↻ 藍牙斷線 (點擊重連)').prop('disabled', false).show();
 		} else {
-			btn.css({ background: '#1a73e8', opacity: '1' })
-			   .text('↻ 連接 / 重試藍牙');
+			btn.hide();
 		}
 	}
-
-	$(function() {
-		setTimeout(function() {
-			updateRetryButton('disconnected');
-		}, 500);
-	});
 
 	function onHardwareEvent(info, event) {
 		var res = Promise.resolve();
@@ -207,39 +211,53 @@ function BtDeviceGroupFactory() {
 	var onDisconnect = onHardwareEvent.bind(null, 'disconnect');
 
 	function init(reconnect) {
-		updateRetryButton('connecting');
-		if (connectTimeout) {
-			clearTimeout(connectTimeout);
-		}
-
-		// 設定 10 秒超時保護：如果選完設備後 GATT 握手卡死無回應，自動恢復按鈕為可重試狀態
-		var isFinished = false;
-		connectTimeout = setTimeout(function() {
-			if (!isFinished) {
-				giikerutil.log('[bluetooth]', 'connection timeout');
-				if (_device && _device.gatt && _device.gatt.connected) {
-					try { _device.gatt.disconnect(); } catch (e) {}
-				}
-				_device = null;
-				updateRetryButton('disconnected');
-			}
-		}, 10000);
-
-		return giikerutil.chkAvail().then(function() {
+		updateRetryButton(false);
+		return giikerutil.chkAvail().then(function () {
 			if (_device && reconnect) {
+				giikerutil.log('[bluetooth]', 'reconnecting...', _device);
 				return waitUntilDeviceAvailable(_device);
 			}
-			// 略過掃描與連線裝置建立流程 (完整程式碼請參照專案設定)
-			// ...
-		}).then(function(res) {
-			isFinished = true;
-			clearTimeout(connectTimeout);
-			updateRetryButton('connected');
+			var filters = Object.keys(cubeModels).map((prefix) => ({ namePrefix: prefix }));
+			var opservs = [...new Set(Array.prototype.concat.apply([], Object.values(cubeModels).map((cubeModel) => cubeModel.opservs || [])))];
+			var cics = [...new Set(Array.prototype.concat.apply([], Object.values(cubeModels).map((cubeModel) => cubeModel.cics || [])))];
+			var servFilters = [...new Set(Array.prototype.concat.apply([], Object.values(cubeModels).map((cubeModel) => cubeModel.servFilters || [])))];
+			if (!/Bluefy/i.test(window.navigator.userAgent || '')) {
+				filters = filters.concat(servFilters.map((service) => ({ services: [service] })));
+			}
+			giikerutil.log('[bluetooth]', 'scanning...', Object.keys(cubeModels));
+			return window.navigator.bluetooth.requestDevice({
+				filters: filters,
+				optionalServices: opservs,
+				optionalManufacturerData: cics
+			});
+		}).then(function (device) {
+			giikerutil.log('[bluetooth]', 'BLE device is selected, name=' + device.name, device);
+			_device = device;
+			device.addEventListener('gattserverdisconnected', onDisconnect);
+			cube = null;
+			var bestPrefix = '';
+			for (var prefix in cubeModels) {
+				if (device.name && device.name.startsWith(prefix) && prefix.length > bestPrefix.length) {
+					bestPrefix = prefix;
+					cube = cubeModels[prefix];
+				}
+			}
+			if (cube) {
+				return cube.init(device);
+			}
+			return device.gatt.connect().then((gatt) => gatt.getPrimaryServices()).then(function (servs) {
+				var uuids = servs.map((service) => toUuid128(service.uuid));
+				cube = Object.values(cubeModels).find((model) => (model.servFilters || []).some((s) => uuids.indexOf(toUuid128(s)) >= 0));
+				if (!cube) {
+					return Promise.reject('Cannot detect device type');
+				}
+				return cube.init(device);
+			});
+		}).then(function (res) {
+			updateRetryButton(false);
 			return res;
-		}).catch(function(err) {
-			isFinished = true;
-			clearTimeout(connectTimeout);
-			updateRetryButton('disconnected');
+		}).catch(function (err) {
+			updateRetryButton(true);
 			return Promise.reject(err);
 		});
 	}
