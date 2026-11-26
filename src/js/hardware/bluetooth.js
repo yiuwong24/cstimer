@@ -144,36 +144,38 @@ function BtDeviceGroupFactory() {
 			}, 10000);
 		});
 	}
-	function showBtRetryDialog(titleText, errorMsg, retryFn) {
-		$('#bt-retry-overlay').remove();
-		var overlay = $('<div id="bt-retry-overlay" style="position:fixed;top:0;left:0;width:100%;height:100%;background:rgba(0,0,0,0.6);z-index:99999;display:flex;align-items:center;justify-content:center;"></div>');
-		var box = $('<div style="background:#fff;color:#222;padding:20px;border-radius:8px;text-align:center;max-width:320px;box-shadow:0 4px 15px rgba(0,0,0,0.3);font-family:sans-serif;"></div>');
-		var title = $('<h4 style="margin:0 0 10px 0;"></h4>').text(titleText);
-		var msg = $('<p style="margin:0 0 18px 0;font-size:14px;word-break:break-word;"></p>').text(errorMsg);
-		var retryBtn = $('<button style="padding:10px 20px;margin-right:10px;background:#1a73e8;color:#fff;border:none;border-radius:4px;cursor:pointer;font-size:14px;font-weight:bold;">Retry 重新連線</button>');
-		var cancelBtn = $('<button style="padding:10px 18px;background:#e0e0e0;color:#333;border:none;border-radius:4px;cursor:pointer;font-size:14px;">關閉</button>');
-
-		retryBtn.on('click', function () {
-			overlay.remove();
-			retryFn();
-		});
-		cancelBtn.on('click', function () {
-			overlay.remove();
-		});
-
-		box.append(title, msg, retryBtn, cancelBtn);
-		overlay.append(box);
-		$('body').append(overlay);
+	
+	function setInlineRetryBtn(show, labelText) {
+		var btn = $('#bt-inline-retry-btn');
+		if (show) {
+			if (btn.length === 0) {
+				btn = $('<button id="bt-inline-retry-btn" style="display:block;margin:10px auto 4px auto;padding:8px 22px;background:#1a73e8;color:#fff;border:none;border-radius:20px;font-size:15px;font-weight:bold;box-shadow:0 3px 10px rgba(0,0,0,0.45);cursor:pointer;white-space:nowrap;position:relative;z-index:9999;"></button>');
+				btn.on('click', function (e) {
+					e.stopPropagation();
+					e.preventDefault();
+					btn.text('⏳ 連線中...').prop('disabled', true);
+					_device = null;
+					init(false);
+				});
+				if ($('#lcd').length > 0) {
+					$('#lcd').after(btn);
+				} else if ($('#avgstr').length > 0) {
+					$('#avgstr').before(btn);
+				} else {
+					$('body').append(btn);
+				}
+			}
+			btn.text(labelText || '↻ 藍牙斷線 (點擊重連)').prop('disabled', false).show();
+		} else {
+			btn.hide();
+		}
 	}
 
 	function onHardwareEvent(info, event) {
 		var res = Promise.resolve();
 		if (info == 'disconnect') {
 			res = Promise.resolve(stop(true)).then(function () {
-				showBtRetryDialog('計時器已斷線', '計時器已自動關機或訊號中斷，請確認開啟電源後點擊重連。', function () {
-					_device = null;
-					init(false);
-				});
+				setInlineRetryBtn(true, '↻ 計時器已斷線 (點擊重連)');
 			});
 		}
 		return res.then(function () {
@@ -181,9 +183,11 @@ function BtDeviceGroupFactory() {
 		});
 	}
 
-	var onDisconnect = onHardwareEvent.bind(null, 'disconnect');
+		var onDisconnect = onHardwareEvent.bind(null, 'disconnect');
 
 	function init(reconnect) {
+		var connectTimer = null;
+		setInlineRetryBtn(false);
 		return giikerutil.chkAvail().then(function () {
 			if (_device && reconnect) {
 				giikerutil.log('[bluetooth]', 'reconnecting...', _device);
@@ -217,29 +221,52 @@ function BtDeviceGroupFactory() {
 					cube = cubeModels[prefix];
 				}
 			}
+
+			var connectPromise;
 			if (cube) {
-				return cube.init(device);
+				connectPromise = cube.init(device);
+			} else {
+				connectPromise = device.gatt.connect().then((gatt) => gatt.getPrimaryServices()).then(function (servs) {
+					var uuids = servs.map((service) => toUuid128(service.uuid));
+					cube = Object.values(cubeModels).find((model) => (model.servFilters || []).some((s) => uuids.indexOf(toUuid128(s)) >= 0));
+					if (!cube) {
+						return Promise.reject('Cannot detect device type');
+					}
+					return cube.init(device);
+				});
 			}
-			return device.gatt.connect().then((gatt) => gatt.getPrimaryServices()).then(function (servs) {
-				var uuids = servs.map((service) => toUuid128(service.uuid));
-				cube = Object.values(cubeModels).find((model) => (model.servFilters || []).some((s) => uuids.indexOf(toUuid128(s)) >= 0));
-				if (!cube) {
-					return Promise.reject('Cannot detect device type');
-				}
-				return cube.init(device);
+
+			var timeoutPromise = new Promise(function (_, reject) {
+				connectTimer = setTimeout(function () {
+					try {
+						if (device && device.gatt && device.gatt.connected) {
+							device.gatt.disconnect();
+						}
+					} catch (e) {}
+					reject(new Error('連線超時 (5秒無回應)'));
+				}, 5000);
 			});
+
+			return Promise.race([connectPromise, timeoutPromise]).finally(function () {
+				if (connectTimer) {
+					clearTimeout(connectTimer);
+				}
+			});
+		}).then(function (res) {
+			setInlineRetryBtn(false);
+			return res;
 		}).catch(function (err) {
+			if (connectTimer) {
+				clearTimeout(connectTimer);
+			}
 			if (err && err.name === 'NotFoundError') {
 				return;
 			}
-			var errText = (err && err.message) ? err.message : String(err);
-			showBtRetryDialog('藍牙連線失敗', errText, function () {
-				_device = null;
-				init(false);
-			});
-			return new Promise(function () { });
+			setInlineRetryBtn(true, '↻ 連線失敗 / 超時 (點擊重試)');
+			return Promise.reject(err);
 		});
 	}
+
 	function waitUntilDeviceAvailable(device) {
 		var abortController = new AbortController();
 		return new Promise(function (resolve, reject) {
