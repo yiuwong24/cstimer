@@ -143,25 +143,37 @@ function BtDeviceGroupFactory() {
 			}, 10000);
 		});
 	}
-	var connectTimeout = null;
+		var connectTimeout = null;
 
 	function updateRetryButton(state) {
-		// state: 'disconnected' | 'connecting' | 'connected'
 		var btn = $('#bt-center-retry-btn');
 		if (btn.length === 0) {
 			btn = $('<button id="bt-center-retry-btn" style="display:block;margin:12px auto 4px auto;padding:8px 22px;color:#fff;border:none;border-radius:20px;font-size:15px;font-weight:bold;box-shadow:0 3px 10px rgba(0,0,0,0.45);cursor:pointer;white-space:nowrap;position:relative;z-index:9999;"></button>');
 			btn.on('click', function(e) {
 				e.stopPropagation();
-				// 即使正在連線中卡住，點擊也能強制重設並重新發起連線
+				e.preventDefault();
+				
+				// 1. 清除舊的超時計時器
 				if (connectTimeout) {
 					clearTimeout(connectTimeout);
+					connectTimeout = null;
 				}
-				if (_device && _device.gatt && _device.gatt.connected) {
-					try { _device.gatt.disconnect(); } catch (err) {}
-				}
+
+				// 2. 立即更新按鈕為「重設中...」
+				btn.css({ background: '#f57c00', opacity: '1' }).text('⏳ 正在重設藍牙...');
+
+				// 3. 安全斷開舊連線，避免直接覆蓋導致瀏覽器藍牙卡死
+				try {
+					if (_device && _device.gatt && _device.gatt.connected) {
+						_device.gatt.disconnect();
+					}
+				} catch (err) {}
 				_device = null;
+
+				// 4. 直接發起新的掃描連線（必須在 click 事件內同步觸發 requestDevice，不能放進 setTimeout 否則會被瀏覽器擋掉）
 				init(false);
 			});
+
 			if ($('#lcd').length > 0) {
 				$('#lcd').after(btn);
 			} else if ($('#avgstr').length > 0) {
@@ -171,7 +183,6 @@ function BtDeviceGroupFactory() {
 			}
 		}
 
-		// 永遠保持按鈕可點擊（不設 disabled），防止卡死時無法手動重試
 		btn.prop('disabled', false).show();
 
 		if (state === 'connecting') {
@@ -179,12 +190,13 @@ function BtDeviceGroupFactory() {
 			   .text('⏳ 連線中... (點擊可重試)');
 		} else if (state === 'connected') {
 			btn.css({ background: '#2e7d32', opacity: '0.65' })
-			   .text('✓ 藍牙已連線');
+			   .text('✓ 藍牙已連線 (點擊可重連)');
 		} else {
 			btn.css({ background: '#1a73e8', opacity: '1' })
 			   .text('↻ 連接 / 重試藍牙');
 		}
 	}
+
 
 	$(function() {
 		setTimeout(function() {
