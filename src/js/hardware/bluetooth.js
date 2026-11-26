@@ -144,51 +144,22 @@ function BtDeviceGroupFactory() {
 			}, 10000);
 		});
 	}
-	
-	function setInlineRetryBtn(show, labelText) {
-		var btn = $('#bt-inline-retry-btn');
-		if (show) {
-			if (btn.length === 0) {
-				btn = $('<button id="bt-inline-retry-btn" style="display:block;margin:10px auto 4px auto;padding:8px 22px;background:#1a73e8;color:#fff;border:none;border-radius:20px;font-size:15px;font-weight:bold;box-shadow:0 3px 10px rgba(0,0,0,0.45);cursor:pointer;white-space:nowrap;position:relative;z-index:9999;"></button>');
-				btn.on('click', function (e) {
-					e.stopPropagation();
-					e.preventDefault();
-					btn.text('⏳ 連線中...').prop('disabled', true);
-					_device = null;
-					init(false);
-				});
-			}
-			// 每次顯示時都確保它掛在 #lcd 後面（防止畫面重繪時被清掉）
-			if ($('#lcd').length > 0 && btn.prev().attr('id') !== 'lcd') {
-				$('#lcd').after(btn);
-			} else if ($('#avgstr').length > 0 && btn.next().attr('id') !== 'avgstr') {
-				$('#avgstr').before(btn);
-			} else if (!document.body.contains(btn[0])) {
-				$('body').append(btn);
-			}
-			btn.text(labelText || '↻ 藍牙斷線 (點擊重連)').prop('disabled', false).show();
-		} else {
-			btn.hide();
-		}
-	}
 
-	function onHardwareEvent(info, event) {
+
+		function onHardwareEvent(info, event) {
 		var res = Promise.resolve();
 		if (info == 'disconnect') {
-			res = Promise.resolve(stop(true)).then(function () {
-				setInlineRetryBtn(true, '↻ 計時器已斷線 (點擊重連)');
-			});
+			res = Promise.resolve(stop(true));
 		}
 		return res.then(function () {
 			return typeof evtCallback == 'function' && evtCallback(info, event);
 		});
 	}
 
-		var onDisconnect = onHardwareEvent.bind(null, 'disconnect');
+	var onDisconnect = onHardwareEvent.bind(null, 'disconnect');
 
 	function init(reconnect) {
 		var connectTimer = null;
-		setInlineRetryBtn(false);
 		return giikerutil.chkAvail().then(function () {
 			if (_device && reconnect) {
 				giikerutil.log('[bluetooth]', 'reconnecting...', _device);
@@ -237,6 +208,7 @@ function BtDeviceGroupFactory() {
 				});
 			}
 
+			// 5 秒超時保護
 			var timeoutPromise = new Promise(function (_, reject) {
 				connectTimer = setTimeout(function () {
 					try {
@@ -253,21 +225,14 @@ function BtDeviceGroupFactory() {
 					clearTimeout(connectTimer);
 				}
 			});
-		}).then(function (res) {
-			setInlineRetryBtn(false);
-			return res;
 		}).catch(function (err) {
 			if (connectTimer) {
 				clearTimeout(connectTimer);
 			}
-			if (err && err.name === 'NotFoundError') {
-				setInlineRetryBtn(true, '↻ 未選擇設備 (點擊重新連線)');
-				return new Promise(function () {}); // 阻止上層重置回 0.000
-			}
-			setInlineRetryBtn(true, '↻ 連線失敗 / 超時 (點擊重試)');
 			return Promise.reject(err);
 		});
 	}
+
 
 	function waitUntilDeviceAvailable(device) {
 		var abortController = new AbortController();

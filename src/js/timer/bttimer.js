@@ -1,5 +1,5 @@
 // Timer Implementation that uses QIYI Smart Timer via its Bluetooth protocol
-execMain(function(timer) {
+execMain(function (timer) {
 	"use strict";
 
 	var enable = false;
@@ -60,9 +60,37 @@ execMain(function(timer) {
 				timer.status(-1);
 				timer.lcd.renderUtil();
 				timer.lcd.fixDisplay(false, true);
+				updateTimerRetryBtn(true, '↻ 計時器已斷線 (點擊重連)');
 				reconnectTimer();
 				break;
 		}
+	}
+
+	function updateTimerRetryBtn(show, labelText) {
+		var btn = $('#bt-inline-retry-btn');
+		if (!enable || !show) {
+			btn.hide();
+			return;
+		}
+		if (btn.length === 0) {
+			btn = $('<button id="bt-inline-retry-btn" style="display:block;margin:10px auto 4px auto;padding:8px 22px;background:#1a73e8;color:#fff;border:none;border-radius:20px;font-size:15px;font-weight:bold;box-shadow:0 3px 10px rgba(0,0,0,0.45);cursor:pointer;white-space:nowrap;position:relative;z-index:9999;"></button>');
+			btn.on('click', function (e) {
+				e.stopPropagation();
+				e.preventDefault();
+				btn.text('⏳ 連線中...').prop('disabled', true);
+				BluetoothTimer.stop().then(function () {
+					connectTimer(false);
+				});
+			});
+		}
+		if ($('#lcd').length > 0 && btn.prev().attr('id') !== 'lcd') {
+			$('#lcd').after(btn);
+		} else if ($('#avgstr').length > 0 && btn.next().attr('id') !== 'avgstr') {
+			$('#avgstr').before(btn);
+		} else if (!document.body.contains(btn)) {
+			$('body').append(btn);
+		}
+		btn.text(labelText || '↻ 藍牙未連線 (點擊重試)').prop('disabled', false).show();
 	}
 
 	function reconnectTimer() {
@@ -73,9 +101,11 @@ execMain(function(timer) {
 	}
 
 	function connectTimer(reconnect) {
+		updateTimerRetryBtn(false);
 		BluetoothTimer.setCallback(onQiyiTimerEvent);
 		BluetoothTimer.init().then(function () {
 			DEBUG && console.log('[qiyitimer] timer device successfully connected');
+			updateTimerRetryBtn(false);
 			timer.hardTime(0);
 			timer.status(-1);
 			timer.lcd.reset();
@@ -83,6 +113,11 @@ execMain(function(timer) {
 			timer.lcd.fixDisplay(false, true);
 		}).catch(function (err) {
 			DEBUG && console.log('[qiyitimer] failed to connect to timer', err);
+			if (err && err.name === 'NotFoundError') {
+				updateTimerRetryBtn(true, '↻ 未選擇設備 (點擊重新連線)');
+				return;
+			}
+			updateTimerRetryBtn(true, '↻ 連線失敗 / 超時 (點擊重試)');
 			if (!reconnect) {
 				alert(err);
 			}
@@ -98,7 +133,9 @@ execMain(function(timer) {
 		BluetoothTimer.stop().then(function () {
 			kernel.showDialog([dialogMsg, function () {
 				connectTimer();
-			}, 0, 0], 'share', BT_CONNECT_TITLE.split('|')[1]);
+			}, function () {
+				updateTimerRetryBtn(true, '↻ 未連線 (點擊連接藍牙)');
+			}, 0], 'share', BT_CONNECT_TITLE.split('|')[1]);
 		});
 	}
 
@@ -108,9 +145,11 @@ execMain(function(timer) {
 			timer.hardTime(null);
 			showConnectionDialog();
 		} else {
+			updateTimerRetryBtn(false);
 			BluetoothTimer.stop();
 		}
 	}
+
 
 	function onKeyUp(keyCode) {
 		if (!enable) {
