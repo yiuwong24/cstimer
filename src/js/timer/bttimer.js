@@ -113,12 +113,20 @@ execMain(function (timer) {
 			timer.lcd.fixDisplay(false, true);
 		}).catch(function (err) {
 			DEBUG && console.log('[qiyitimer] failed to connect to timer', err);
-			// 按取消 (NotFoundError) 或重開網頁自動觸發被瀏覽器擋下 (SecurityError) 時，直接顯示藍色按鈕且不彈 alert
+			var errMsg = (err && err.message) ? err.message : String(err);
+
+			// 1. 按取消 (NotFoundError) 或重開網頁被瀏覽器擋下 (SecurityError) -> 不彈 alert，直接出按鈕
 			if (err && (err.name === 'NotFoundError' || err.name === 'SecurityError')) {
 				updateTimerRetryBtn(true, '↻ 未連線 (點擊連接藍牙)');
 				return;
 			}
-			updateTimerRetryBtn(true, '↻ 連線失敗 / 超時 (點擊重試)');
+			// 2. 超過 5 秒超時 -> 不彈 alert，直接出重試按鈕
+			if (errMsg.indexOf('超時') !== -1) {
+				updateTimerRetryBtn(true, '↻ 連線超時 (點擊重試)');
+				return;
+			}
+			// 3. 其他真正異常錯誤 -> 出按鈕並保留 alert 提示
+			updateTimerRetryBtn(true, '↻ 連線失敗 (點擊重試)');
 			if (!reconnect) {
 				alert(err);
 			}
